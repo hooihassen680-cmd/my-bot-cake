@@ -3,13 +3,13 @@ from telethon import TelegramClient, events, Button
 from telethon.tl.functions.channels import GetParticipantRequest
 from telethon.errors import UserNotParticipantError
 
-# --- [بيانات المطور - تأكد من صحتها] ---
+# --- [بيانات المطور] ---
 api_id = 30703866 
 api_hash = '304c79f8ee0598f83984578bdcdc1b5f' 
 bot_token = '8631181450:AAEawLoYS1dHWC1k5xvmT_Opr_zifsHnmP8' 
 ADMIN_ID = 5891747084 
 
-client = TelegramClient('Hassan_Final_Session', api_id, api_hash).start(bot_token=bot_token)
+client = TelegramClient('Hassan_Direct_Session', api_id, api_hash).start(bot_token=bot_token)
 
 # ملفات قاعدة البيانات
 CHANNELS_FILE = "channels_list.txt"
@@ -36,7 +36,7 @@ async def check_sub(user_id):
         except: continue
     return None
 
-# --- [رسالة الترحيب المدمجة والموحدة] ---
+# --- [رسالة الترحيب المدمجة - خانة واحدة] ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start_cmd(event):
     user_id = event.sender_id
@@ -66,43 +66,42 @@ async def start_cmd(event):
 async def admin(event):
     if event.sender_id != ADMIN_ID: return
     st = json.load(open(STATS_FILE))
-    await event.edit(f"⚙️ **لوحة التحكم:**\n\n📥 تحميلات: {st.get('total', 0)}", 
+    await event.edit(f"⚙️ **لوحة التحكم للمطور:**\n\n📥 تحميلات: {st.get('total', 0)}", 
                      buttons=[[Button.inline("➕ إضافة قناة", data="add_ch")],
-                              [Button.inline("🔄 إعادة تشغيل", data="restart")]])
+                              [Button.inline("🔄 إعادة تشغيل البوت", data="restart")]])
 
 @client.on(events.CallbackQuery(data="add_ch"))
 async def add_ch_req(event):
     admin_states[event.sender_id] = "waiting"
-    await event.respond("📥 أرسل معرف القناة الآن (سأنتظرك للأبد):")
+    await event.respond("📥 أرسل معرف القناة الآن (سأنتظرك للأبد دون وقت محدد):")
 
 @client.on(events.CallbackQuery(data="restart"))
 async def restart_bot(event):
-    await event.edit("🔄 جاري إعادة التشغيل...")
+    await event.edit("🔄 جاري إعادة التشغيل وتثبيت نظام التحميل المباشر...")
     await client.disconnect()
     os.execl(sys.executable, sys.executable, *sys.argv)
 
 @client.on(events.NewMessage(incoming=True))
-async def handle_input(event):
+async def handle_admin_input(event):
     if event.sender_id == ADMIN_ID and admin_states.get(event.sender_id) == "waiting":
         ch = event.text.replace("@", "").strip()
         with open(CHANNELS_FILE, "a") as f: f.write(f"{ch}\n")
         del admin_states[event.sender_id]
         await event.reply(f"✅ تمت إضافة القناة @{ch} بنجاح!")
 
-# --- [نظام التحميل المباشر والذكي بأعلى دقة 4K/HD] ---
+# --- [نظام التحميل المباشر - جودة 4K/HD حصراً] ---
 @client.on(events.NewMessage(pattern=r'(https?://\S+)'))
-async def high_quality_download(event):
+async def direct_high_quality_dl(event):
     not_sub = await check_sub(event.sender_id)
-    if not_sub: return await event.reply(f"⚠️ اشترك أولاً: @{not_sub}")
+    if not_sub: return await event.reply(f"⚠️ اشترك أولاً في القناة: @{not_sub}")
 
     url = event.text.strip()
-    # رسالة مؤقتة تظهر أثناء التحميل
-    msg = await event.reply("⏳ جاري معالجة الفيديو واستخراجه بأعلى دقة... انتظر قليلاً")
+    msg = await event.reply("⏳ جاري التحميل بأعلى دقة متوفرة... انتظر قليلاً")
     
-    # إعدادات معالجة الدقة القصوى (أعلى فيديو + أعلى صوت)
+    # المعالجة الذكية للجودة القصوى
     ydl_opts = {
         'format': 'bestvideo+bestaudio/best', 
-        'outtmpl': f'hassan_hq_{event.sender_id}.%(ext)s',
+        'outtmpl': f'hassan_direct_{event.sender_id}.%(ext)s',
         'quiet': True,
         'noplaylist': True,
         'merge_output_format': 'mp4',
@@ -114,27 +113,25 @@ async def high_quality_download(event):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
             
-            # الكليشة المطلوبة حصراً
+            # الكليشة المطلوبة بدون أي إضافات
             caption = (
                 "اكتمل التحميل ✔️\n"
                 "تم تجهيز الفيديو بأفضل جودة متاحة.\n"
                 "أرسل الرابط التالي عند الطلب"
             )
             
-            # إرسال الفيديو مباشرة بالكليشة
             await client.send_file(event.chat_id, filename, caption=caption, reply_to=event.id, supports_streaming=True)
-            await msg.delete() # حذف رسالة "جاري التحميل" بعد الانتهاء
+            await msg.delete() 
             
-            # تحديث الإحصائيات
             st = json.load(open(STATS_FILE))
             st["total"] += 1
             with open(STATS_FILE, "w") as f: json.dump(st, f)
             
     except Exception:
-        await msg.edit("❌ نعتذر، حدث خطأ أثناء معالجة هذا الرابط.")
+        await msg.edit("❌ نعتذر، تعذر تحميل المقطع بأعلى دقة حالياً.")
     finally:
         if filename and os.path.exists(filename):
             os.remove(filename)
 
-print("🚀 تم تشغيل البوت بنظام التحميل المباشر والجودة القصوى!")
+print("🚀 تم تفعيل التحميل المباشر والجودة الفائقة!")
 client.run_until_disconnected()
