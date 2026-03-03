@@ -3,7 +3,7 @@ from telethon import TelegramClient, events, Button
 from telethon.tl.functions.channels import GetParticipantRequest
 from telethon.errors import UserNotParticipantError
 
-# --- [بيانات المطور] ---
+# --- [بيانات المطور - عدلها إذا تغيرت] ---
 api_id = 30703866 
 api_hash = '304c79f8ee0598f83984578bdcdc1b5f' 
 bot_token = '8631181450:AAEawLoYS1dHWC1k5xvmT_Opr_zifsHnmP8' 
@@ -15,19 +15,16 @@ client = TelegramClient('Hassan_Server_Session', api_id, api_hash).start(bot_tok
 USERS_FILE = "users_list.txt"
 CHANNELS_FILE = "channels_list.txt"
 STATS_FILE = "stats_data.json"
-HISTORY_FILE = "download_history.json"
 
 admin_states = {}
-pending_downloads = {}
+pending_urls = {}
 
-# --- [دوال النظام] ---
+# --- [دوال النظام وقاعدة البيانات] ---
 def init_db():
     for f in [USERS_FILE, CHANNELS_FILE]:
         if not os.path.exists(f): open(f, "w").close()
     if not os.path.exists(STATS_FILE):
-        with open(STATS_FILE, "w") as f: json.dump({"total": 0, "sites": {}, "peak_hours": {}}, f)
-    if not os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "w") as f: json.dump({}, f)
+        with open(STATS_FILE, "w") as f: json.dump({"total": 0}, f)
 
 init_db()
 
@@ -35,26 +32,6 @@ def add_user(user_id):
     users = open(USERS_FILE, "r").read().splitlines()
     if str(user_id) not in users:
         with open(USERS_FILE, "a") as f: f.write(f"{user_id}\n")
-
-def update_stats(url):
-    site = "Other"
-    if "tiktok" in url: site = "TikTok"
-    elif "instagram" in url: site = "Instagram"
-    elif "youtube" in url or "youtu.be" in url: site = "YouTube"
-    
-    data = json.load(open(STATS_FILE))
-    data["total"] += 1
-    data["sites"][site] = data["sites"].get(site, 0) + 1
-    hour = time.strftime("%H")
-    data["peak_hours"][hour] = data["peak_hours"].get(hour, 0) + 1
-    with open(STATS_FILE, "w") as f: json.dump(data, f)
-
-def save_history(user_id, title, msg_media):
-    data = json.load(open(HISTORY_FILE))
-    user_h = data.get(str(user_id), [])
-    user_h.insert(0, {"title": title, "media": str(msg_media)})
-    data[str(user_id)] = user_h[:5]
-    with open(HISTORY_FILE, "w") as f: json.dump(data, f)
 
 async def check_sub(user_id):
     channels = open(CHANNELS_FILE, "r").read().splitlines()
@@ -68,36 +45,48 @@ async def check_sub(user_id):
 # --- [الأوامر الرئيسية] ---
 @client.on(events.NewMessage(pattern='/start'))
 async def start(event):
-    add_user(event.sender_id)
-    not_sub = await check_sub(event.sender_id)
-    if not_sub:
-        return await event.respond(f"⚠️ اشترك بالقناة أولاً: @{not_sub}", buttons=[Button.url("اشتراك", f"https://t.me/{not_sub}")])
+    user_id = event.sender_id
+    add_user(user_id)
     
-    await event.respond(f"✨ أهلاً بك في بوت التحميل المطور ✨\n\n📊 المستخدمين: {len(open(USERS_FILE).read().splitlines())}\n📂 لرؤية سجل تحميلاتك أرسل: /history", 
-                        buttons=[[Button.url("📢 القناة", "https://t.me/ha_i_i9")], [Button.inline("⚙️ لوحة التحكم", data="admin_panel")] if event.sender_id == ADMIN_ID else []])
+    # فحص الاشتراك الإجباري
+    not_sub = await check_sub(user_id)
+    if not_sub:
+        return await event.respond(
+            f"⚠️ عذراً عزيزي، عليك الاشتراك في قناة البوت أولاً لتتمكن من استخدامه.\n\n📍 القناة: @{not_sub}", 
+            buttons=[Button.url("اضغط هنا للاشتراك", f"https://t.me/{not_sub}")]
+        )
 
-@client.on(events.NewMessage(pattern='/history'))
-async def history(event):
-    data = json.load(open(HISTORY_FILE)).get(str(event.sender_id), [])
-    if not data: return await event.respond("📭 سجل التحميلات فارغ.")
-    text = "📂 **آخر 5 فيديوهات حملتها:**\n\n"
-    for i, item in enumerate(data): text += f"{i+1}. {item['title']}\n"
-    await event.respond(text)
+    welcome_text = (
+        f"✨ أهلاً بك في بوت التحميل المطور ✨\n\n"
+        f"📊 مستخدمي البوت الآن: {len(open(USERS_FILE).read().splitlines())}\n"
+        f"━━━━━━━━\n"
+        f"👑 المطور: حسـ𝑯᭄ـون"
+    )
+    
+    buttons = [[Button.url("📢 قناة المطور", "https://t.me/ha_i_i9")]]
+    if user_id == ADMIN_ID:
+        buttons.append([Button.inline("⚙️ لوحة التحكم", data="admin_panel")])
+    
+    await event.respond(welcome_text, buttons=buttons)
 
-# --- [لوحة التحكم المعدلة] ---
+# --- [لوحة التحكم للمطور] ---
 @client.on(events.CallbackQuery(data="admin_panel"))
 async def admin(event):
     if event.sender_id != ADMIN_ID: return
     st = json.load(open(STATS_FILE))
-    top = max(st["sites"], key=st["sites"].get) if st["sites"] else "None"
-    await event.edit(f"⚙️ **إحصائيات حسون:**\n\n📥 تحميلات: {st['total']}\n🌐 أكثر موقع: {top}\n👥 مستخدمين: {len(open(USERS_FILE).read().splitlines())}", 
-                     buttons=[
-                         [Button.inline("➕ إضافة قناة", data="add_ch"), Button.inline("📢 إذاعة", data="bc")],
-                         [Button.inline("🔄 إعادة تشغيل البوت", data="restart_bot")],
-                         [Button.inline("🗑 مسح القنوات", data="del_ch")]
-                     ])
+    count = len(open(USERS_FILE).read().splitlines())
+    await event.edit(
+        f"⚙️ **لوحة التحكم (المطور حسون):**\n\n"
+        f"👥 عدد المستخدمين: {count}\n"
+        f"📥 إجمالي التحميلات: {st.get('total', 0)}\n"
+        f"📢 القنوات المضافة: {len(open(CHANNELS_FILE).read().splitlines())}", 
+        buttons=[
+            [Button.inline("➕ إضافة قناة", data="add_ch"), Button.inline("📢 إذاعة", data="bc")],
+            [Button.inline("🔄 إعادة تشغيل البوت", data="restart_bot")],
+            [Button.inline("🗑 مسح القنوات", data="del_ch")]
+        ]
+    )
 
-# --- [تنفيذ إعادة التشغيل] ---
 @client.on(events.CallbackQuery(data="restart_bot"))
 async def restart_bot(event):
     if event.sender_id != ADMIN_ID: return
@@ -107,61 +96,111 @@ async def restart_bot(event):
 
 @client.on(events.CallbackQuery(pattern=r"(add_ch|bc)"))
 async def admin_input_req(event):
-    admin_states[event.sender_id] = event.data.decode()
-    await event.respond("📥 أرسل المطلوب الآن:")
+    if event.sender_id != ADMIN_ID: return
+    mode = event.data.decode()
+    admin_states[event.sender_id] = mode
+    msg = "📥 أرسل الآن معرف القناة (مثال: @username):" if mode == "add_ch" else "📢 أرسل نص الإذاعة الآن:"
+    await event.respond(msg)
+    await event.answer()
 
 @client.on(events.NewMessage(incoming=True))
 async def handle_admin_input(event):
-    if event.sender_id != ADMIN_ID or event.sender_id not in admin_states: return
-    state = admin_states.pop(event.sender_id)
+    # معالج الإضافة والإذاعة بدون وقت انتهاء
+    user_id = event.sender_id
+    if user_id != ADMIN_ID or user_id not in admin_states: return
+    
+    state = admin_states.pop(user_id)
     if state == "add_ch":
-        with open(CHANNELS_FILE, "a") as f: f.write(event.text.replace("@","") + "\n")
-        await event.reply("✅ تمت إضافة القناة.")
+        channel = event.text.replace("@", "").strip()
+        with open(CHANNELS_FILE, "a") as f: f.write(f"{channel}\n")
+        await event.reply(f"✅ تمت إضافة القناة @{channel} بنجاح!")
+    
     elif state == "bc":
         users = open(USERS_FILE).read().splitlines()
-        await event.reply(f"⏳ جاري الإذاعة لـ {len(users)}...")
+        await event.reply(f"⏳ جاري الإذاعة لـ {len(users)} مستخدم...")
+        success = 0
         for u in users:
-            try: await client.send_message(int(u), event.text); await asyncio.sleep(0.1)
+            try:
+                await client.send_message(int(u), event.text)
+                success += 1
+                await asyncio.sleep(0.1)
             except: continue
-        await event.reply("✅ تمت الإذاعة.")
+        await event.reply(f"✅ اكتملت الإذاعة بنجاح لـ {success} مستخدم.")
 
-# --- [التحميل] ---
+# --- [نظام التحويل والتحميل] ---
 @client.on(events.NewMessage(pattern=r'(https?://\S+)'))
 async def handler(event):
-    if await check_sub(event.sender_id): return await event.reply("⚠️ اشترك بالقناة أولاً.")
-    pending_downloads[event.sender_id] = event.text
-    buttons = [[Button.inline("🎬 فيديو", data=f"v_{event.sender_id}"), Button.inline("🎵 MP3", data=f"a_{event.sender_id}")],
-               [Button.inline("🎤 بصمة صوتية", data=f"n_{event.sender_id}")]]
-    await event.reply("🚀 اختر الصيغة:", buttons=buttons)
+    if await check_sub(event.sender_id):
+        return # لا يستجيب إذا لم يشترك
+    
+    url = event.text.strip()
+    pending_urls[event.sender_id] = url
+    
+    buttons = [
+        [Button.inline("🎬 مقطع فيديو", data=f"ask_v_{event.sender_id}"), 
+         Button.inline("🎵 صوتي MP3", data=f"ask_a_{event.sender_id}")]
+    ]
+    await event.reply("🤔 اختر الصيغة المطلوبة للتحميل:", buttons=buttons)
 
-@client.on(events.CallbackQuery(pattern=r"(v|a|n)_(\d+)"))
-async def download(event):
-    mode, uid = event.data.decode().split('_')
-    if event.sender_id != int(uid): return
-    url = pending_downloads.get(int(uid))
-    if not url: return await event.edit("⚠️ انتهى الوقت.")
+@client.on(events.CallbackQuery(pattern=r"ask_(v|a)_(\d+)"))
+async def ask_convert(event):
+    data = event.data.decode().split('_')
+    mode, uid = data[1], int(data[2])
+    if event.sender_id != uid: return
     
-    await event.edit("⏳ جاري التحميل... انتظر قليلاً")
+    if mode == 'v':
+        text = "🎬 اخترت تحميل فيديو، هل تود تحويله إلى صوتي أيضاً؟"
+        btns = [[Button.inline("نعم، حوله لصوت", data=f"dl_a_{uid}"), 
+                 Button.inline("لا، فيديو فقط", data=f"dl_v_{uid}")]]
+    else:
+        text = "🎵 اخترت تحميل صوتي، هل تود تحويله إلى مقطع فيديو؟"
+        btns = [[Button.inline("نعم، حوله لفيديو", data=f"dl_v_{uid}"), 
+                 Button.inline("لا، صوتي فقط", data=f"dl_a_{uid}")]]
     
-    opts = {'format': 'bestaudio/best' if mode in ['a', 'n'] else 'best', 'outtmpl': f'dl_{uid}.%(ext)s', 'quiet': True}
+    await event.edit(text, buttons=btns)
+
+@client.on(events.CallbackQuery(pattern=r"dl_(v|a)_(\d+)"))
+async def start_dl(event):
+    data = event.data.decode().split('_')
+    mode, uid = data[1], int(data[2])
+    url = pending_urls.get(uid)
+    if not url: return await event.edit("⚠️ انتهت الجلسة، أرسل الرابط مجدداً.")
+    
+    await event.edit("⏳ جاري المعالجة والتحميل... انتظر قليلاً")
+    
+    # إعدادات التحميل
+    opts = {
+        'format': 'bestaudio/best' if mode == 'a' else 'best',
+        'outtmpl': f'hassan_{uid}.%(ext)s',
+        'quiet': True,
+        'noplaylist': True
+    }
     
     filename = None
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
-            title = info.get('title', 'Video')
             
-            caption = "اكتمل التحميل ✔️\nتم تجهيز الفيديو بأفضل جودة متاحة.\nأرسل الرابط التالي عند الطلب"
+            # الكليشة الموحدة التي طلبتها
+            caption = (
+                f"اكتمل التحميل ✔️\n"
+                f"تم تجهيز الفيديو بأفضل جودة متاحة.\n"
+                f"أرسل الرابط التالي عند الطلب"
+            )
             
-            # إرسال حسب النوع
-            msg = await client.send_file(event.chat_id, filename, caption=caption, voice_note=(mode=='n'))
+            await client.send_file(event.chat_id, filename, caption=caption)
             
-            update_stats(url)
-            save_history(uid, title, msg.media)
-    except Exception as e: await event.respond(f"❌ خطأ: {str(e)[:100]}")
+            # تحديث إحصائيات التحميل
+            st = json.load(open(STATS_FILE))
+            st["total"] = st.get("total", 0) + 1
+            with open(STATS_FILE, "w") as f: json.dump(st, f)
+            
+    except Exception as e:
+        await event.respond(f"❌ فشل التحميل. تأكد من أن الرابط مدعوم.\n{str(e)[:50]}")
     finally:
-        if filename and os.path.exists(filename): os.remove(filename)
+        if filename and os.path.exists(filename):
+            os.remove(filename)
 
-print("✅ البوت شغال يا حسون مع ميزة إعادة التشغيل...")
+print("✅ البوت شغال الآن بجميع التعديلات المطلوبة يا حسون!")
 client.run_until_disconnected()
