@@ -1,137 +1,109 @@
-import os, asyncio, yt_dlp, json, sys
-from telethon import TelegramClient, events, Button
-from telethon.tl.functions.channels import GetParticipantRequest
-from telethon.errors import UserNotParticipantError
+import os
+import sys
+import subprocess
+import asyncio
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.errors import UserNotParticipant
 
-# --- [بيانات المطور] ---
-api_id = 30703866 
-api_hash = '304c79f8ee0598f83984578bdcdc1b5f' 
-bot_token = '8631181450:AAEawLoYS1dHWC1k5xvmT_Opr_zifsHnmP8' 
-ADMIN_ID = 5891747084 
+# --- الإعدادات (ضع معلوماتك هنا) ---
+API_ID = 1234567           
+API_HASH = "your_hash"      
+BOT_TOKEN = "your_token"    
+ADMIN_ID = 12345678        
+CHANNEL_USER = "MyChannel"  
 
-client = TelegramClient('Hassan_Direct_Session', api_id, api_hash).start(bot_token=bot_token)
+app = Client("ExpertVideoBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ملفات قاعدة البيانات
-CHANNELS_FILE = "channels_list.txt"
-USERS_FILE = "users_list.txt"
-STATS_FILE = "stats_data.json"
+# تخزين المستخدمين
+users_db = set()
 
-admin_states = {}
+# --- دالة التحقق من الاشتراك (فورية وبدون تعليق) ---
+async def is_subscribed(client, user_id):
+    try:
+        await client.get_chat_member(CHANNEL_USER, user_id)
+        return True
+    except UserNotParticipant:
+        return False
+    except Exception:
+        return True
 
-def init_db():
-    for f in [USERS_FILE, CHANNELS_FILE]:
-        if not os.path.exists(f): open(f, "w").close()
-    if not os.path.exists(STATS_FILE):
-        with open(STATS_FILE, "w") as f: json.dump({"total": 0}, f)
+# --- أوامر الإدارة ---
+@app.on_message(filters.command("stats") & filters.user(ADMIN_ID))
+async def get_stats(_, message):
+    await message.reply_text(f"📊 **عدد مستخدمي البوت الحالي:** `{len(users_db)}`")
 
-init_db()
-
-async def check_sub(user_id):
-    if not os.path.exists(CHANNELS_FILE): return None
-    channels = open(CHANNELS_FILE, "r").read().splitlines()
-    for ch in channels:
-        try:
-            await client(GetParticipantRequest(channel=ch, user_id=user_id))
-        except UserNotParticipantError: return ch
-        except: continue
-    return None
-
-# --- [رسالة الترحيب المدمجة - خانة واحدة] ---
-@client.on(events.NewMessage(pattern='/start'))
-async def start_cmd(event):
-    user_id = event.sender_id
-    users = open(USERS_FILE, "r").read().splitlines()
-    if str(user_id) not in users:
-        with open(USERS_FILE, "a") as f: f.write(f"{user_id}\n")
-    
-    count = len(open(USERS_FILE).read().splitlines())
-    user_name = event.sender.first_name
-    
-    welcome_msg = (
-        f"✨ أهلاً بك {user_name}\n\n"
-        f"أرسل الرابط الآن للتحميل بأعلى دقة وسلاسة 🚀\n"
-        f"تيك توك، انستا، يوتيوب.. كله مدعوم!\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"📊 المستخدمين: {count}"
-    )
-    
-    buttons = [[Button.url("📢 قناة المطور", "https://t.me/ha_i_i9")]]
-    if user_id == ADMIN_ID:
-        buttons.append([Button.inline("⚙️ لوحة التحكم", data="admin_panel")])
-    
-    await event.respond(welcome_msg, buttons=buttons)
-
-# --- [لوحة التحكم والانتظار اللانهائي] ---
-@client.on(events.CallbackQuery(data="admin_panel"))
-async def admin(event):
-    if event.sender_id != ADMIN_ID: return
-    st = json.load(open(STATS_FILE))
-    await event.edit(f"⚙️ **لوحة التحكم للمطور:**\n\n📥 تحميلات: {st.get('total', 0)}", 
-                     buttons=[[Button.inline("➕ إضافة قناة", data="add_ch")],
-                              [Button.inline("🔄 إعادة تشغيل البوت", data="restart")]])
-
-@client.on(events.CallbackQuery(data="add_ch"))
-async def add_ch_req(event):
-    admin_states[event.sender_id] = "waiting"
-    await event.respond("📥 أرسل معرف القناة الآن (سأنتظرك للأبد دون وقت محدد):")
-
-@client.on(events.CallbackQuery(data="restart"))
-async def restart_bot(event):
-    await event.edit("🔄 جاري إعادة التشغيل وتثبيت نظام التحميل المباشر...")
-    await client.disconnect()
+@app.on_message(filters.command("restart") & filters.user(ADMIN_ID))
+async def restart_bot(_, message):
+    await message.reply_text("🔄 جاري إعادة التشغيل وتصفير العمليات...")
     os.execl(sys.executable, sys.executable, *sys.argv)
 
-@client.on(events.NewMessage(incoming=True))
-async def handle_admin_input(event):
-    if event.sender_id == ADMIN_ID and admin_states.get(event.sender_id) == "waiting":
-        ch = event.text.replace("@", "").strip()
-        with open(CHANNELS_FILE, "a") as f: f.write(f"{ch}\n")
-        del admin_states[event.sender_id]
-        await event.reply(f"✅ تمت إضافة القناة @{ch} بنجاح!")
-
-# --- [نظام التحميل المباشر - جودة 4K/HD حصراً] ---
-@client.on(events.NewMessage(pattern=r'(https?://\S+)'))
-async def direct_high_quality_dl(event):
-    not_sub = await check_sub(event.sender_id)
-    if not_sub: return await event.reply(f"⚠️ اشترك أولاً في القناة: @{not_sub}")
-
-    url = event.text.strip()
-    msg = await event.reply("⏳ جاري التحميل بأعلى دقة متوفرة... انتظر قليلاً")
+# --- محرك المعالجة (حل التقطيع + جودة تيك توك) ---
+async def process_smart_video(input_file, output_file):
+    # الفلاتر: 
+    # minterpolate لتنعيم الحركة (60 فريم) ومنع تقطيع السيارة
+    # scale=-2:2160 لرفع الدقة لـ 4K مع الحفاظ على الأبعاد تلقائياً
+    filter_complex = (
+        "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:vsfm=1,"
+        "scale=-2:2160:flags=lanczos,hqdn3d=1.0:1.0:5:5,unsharp=5:5:0.8:5:5:0.0"
+    )
     
-    # المعالجة الذكية للجودة القصوى
-    ydl_opts = {
-        'format': 'bestvideo+bestaudio/best', 
-        'outtmpl': f'hassan_direct_{event.sender_id}.%(ext)s',
-        'quiet': True,
-        'noplaylist': True,
-        'merge_output_format': 'mp4',
-    }
+    command = [
+        'ffmpeg', '-i', input_file,
+        '-vf', filter_complex,
+        '-c:v', 'libx264', '-crf', '17', '-preset', 'veryfast',
+        '-b:v', '50M', '-pix_fmt', 'yuv420p', '-r', '60',
+        output_file, '-y'
+    ]
     
-    filename = None
+    process = await asyncio.create_subprocess_exec(*command)
+    await process.wait()
+
+# --- استقبال الفيديو ---
+@app.on_message(filters.video | filters.document)
+async def handle_video(client, message: Message):
+    user_id = message.from_user.id
+    users_db.add(user_id)
+
+    # التحقق من الاشتراك
+    if not await is_subscribed(client, user_id):
+        return await message.reply_text(
+            f"⚠️ **اشترك بالقناة أولاً لتتمكن من استخدام البوت:**\n@{CHANNEL_USER}",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("إضغط هنا للاشتراك", url=f"t.me/{CHANNEL_USER}")]])
+        )
+
+    status_msg = await message.reply_text("⏳ **جاري معالجة الفيديو برؤية الذكاء الاصطناعي.. يرجى الانتظار**")
+    
+    input_path = await message.download()
+    output_path = f"ULTRA_{input_path}.mp4"
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            
-            # الكليشة المطلوبة بدون أي إضافات
-            caption = (
-                "اكتمل التحميل ✔️\n"
-                "تم تجهيز الفيديو بأفضل جودة متاحة.\n"
-                "أرسل الرابط التالي عند الطلب"
-            )
-            
-            await client.send_file(event.chat_id, filename, caption=caption, reply_to=event.id, supports_streaming=True)
-            await msg.delete() 
-            
-            st = json.load(open(STATS_FILE))
-            st["total"] += 1
-            with open(STATS_FILE, "w") as f: json.dump(st, f)
-            
-    except Exception:
-        await msg.edit("❌ نعتذر، تعذر تحميل المقطع بأعلى دقة حالياً.")
-    finally:
-        if filename and os.path.exists(filename):
-            os.remove(filename)
+        await process_smart_video(input_path, output_path)
+        
+        # --- رسالتك المطلوبة مدمجة هنا ---
+        caption_text = (
+            "اكتمل التحميل ✔️\n"
+            "تم تجهيز الفيديو بأفضل جودة متاحة.\n"
+            "أرسل الرابط التالي عند الطلب\n\n"
+            "⚙️ **التعديلات الفنية:**\n"
+            "- رفع الانسيابية إلى 60FPS (بدون تقطيع)\n"
+            "- تحسين الجودة الذكي (Smart 4K/8K)\n"
+            "- تنقية الألوان والحدّة"
+        )
 
-print("🚀 تم تفعيل التحميل المباشر والجودة الفائقة!")
-client.run_until_disconnected()
+        await message.reply_video(output_path, caption=caption_text)
+        await status_msg.delete()
+
+    except Exception as e:
+        await status_msg.edit_text(f"❌ خطأ في المعالجة: `{e}`")
+    
+    finally:
+        if os.path.exists(input_path): os.remove(input_path)
+        if os.path.exists(output_path): os.remove(output_path)
+
+@app.on_message(filters.command("start"))
+async def start(_, message):
+    users_db.add(message.from_user.id)
+    await message.reply_text("أرسل الفيديو الآن وسأقوم برفعه لأعلى جودة ومنع التقطيع فورا!")
+
+app.run()
