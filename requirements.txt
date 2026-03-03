@@ -1,4 +1,0 @@
-telethon
-python-dotenv
-requests
-yt-dlp
